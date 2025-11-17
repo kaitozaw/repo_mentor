@@ -28,14 +28,16 @@ PYTHONPATH=.. uvicorn backend.bff.app:app --reload --port 8000
 - Create an Amazon S3 bucket "repo-mentor".
 - Create an IAM policy "RepoMentorS3Policy" granting s3:ListBucket, s3:GetObject, and s3:PutObject access to {BUCKET_NAME}/repos/*.
 - Create an IAM role "RepoMentorRole" with RepoMentorS3Policy.
-- Create an EC2 instance "repo-mentor" (Amazon Linux 2023, 64bits x86, t3.small) with key pair "repo-mentor.pem" and security group "repo-mentor-sg".
+- Create an EC2 key pair "repo-mentor.pem"
+- Create an EC2 security group "repo-mentor-sg" (Inbound rules: Custom TCP, 8000, Custom, 0.0.0.0/0).
+- Create an EC2 instance "repo-mentor" (Amazon Linux 2023, 64bits x86, t3.small) with repo-mentor.pem and repo-mentor-sg.
 - Attach RepoMentorRole to the EC2 instance.
-- Amazon API Gateway HTTP API "repo-mentor" with POST /repository route integrated to the EC2 instance (CORS enabled).
+- Amazon API Gateway HTTP API "repo-mentor" with routes integrated to the EC2 instance (CORS enabled).
 - Deploy the frontend on Cloudflare Pages (repo-mentor.pages.dev) connected to the GitHub repo kaitozaw/repo_mentor.
 - Add a Cloudflare Pages environment variable VITE_API_BASE_URL=https://{API_ID}.execute-api.{REGION}.amazonaws.com.
 
 ### Frontend (Cloudflare Pages)
-- Push the changes to the main branch for GitHub repo kaitozaw/dev_agents.
+- Push the changes to the main branch for GitHub repo kaitozaw/repo_mentor.
 ```bash
 git add .
 git commit -m "message"
@@ -95,7 +97,7 @@ deactivate
 ##### 6. Prepare .env
 ```bash
 cd ~/apps/repo_mentor/backend
-nano .env   # copy from local
+nano .env   # copy from local (make sure to set LOCAL_AWS=false)
 ```
 
 ##### 7. Setup systemd service
@@ -147,14 +149,11 @@ ssh -i ~/keys/repo-mentor.pem ec2-user@<EC2_PUBLIC_IP>
 sudo systemctl stop repo-mentor-api
 ```
 
-##### 2. Clone the repository
+##### 2. Update the repository
 ```bash
 sudo -iu repo
-cd ~/apps
-rm -rf repo_mentor
-git clone https://github.com/kaitozaw/repo_mentor.git
-```
-```bash
+cd ~/apps/repo-mentor
+git pull origin main
 cd backend  # if new dependency is installed
 source ~/apps/repo_mentor_app/venv/bin/activate
 pip install -r requirements.txt
