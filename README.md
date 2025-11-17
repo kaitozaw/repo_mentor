@@ -30,9 +30,9 @@ PYTHONPATH=.. uvicorn backend.bff.app:app --reload --port 8000
 - Create an IAM role "RepoMentorRole" with RepoMentorS3Policy.
 - Create an EC2 instance "repo-mentor" (Amazon Linux 2023, 64bits x86, t3.small) with key pair "repo-mentor.pem" and security group "repo-mentor-sg".
 - Attach RepoMentorRole to the EC2 instance.
-- Amazon API Gateway HTTP API "repo-mentor" with POST /repos route integrated to the EC2 instance (CORS enabled, stage: prod).
+- Amazon API Gateway HTTP API "repo-mentor" with POST /repository route integrated to the EC2 instance (CORS enabled).
 - Deploy the frontend on Cloudflare Pages (repo-mentor.pages.dev) connected to the GitHub repo kaitozaw/repo_mentor.
-- Add a Cloudflare Pages environment variable VITE_API_BASE_URL=https://{API_ID}.execute-api.{REGION}.amazonaws.com/{STAGE}.
+- Add a Cloudflare Pages environment variable VITE_API_BASE_URL=https://{API_ID}.execute-api.{REGION}.amazonaws.com.
 
 ### Frontend (Cloudflare Pages)
 - Push the changes to the main branch for GitHub repo kaitozaw/dev_agents.
@@ -55,6 +55,7 @@ ssh -i ~/keys/repo-mentor.pem ec2-user@<EC2_PUBLIC_IP>
 ```bash
 sudo dnf -y update
 sudo dnf -y install git python3 python3-pip
+sudo dnf -y install python3.11
 ```
 
 ##### 2. Create runtime user (no sudo, no password login)
@@ -71,7 +72,7 @@ sudo chmod 700 /home/repo/.ssh
 sudo -iu repo
 mkdir -p ~/apps/repo_mentor_app
 cd ~/apps/repo_mentor_app
-python3 -m venv venv
+python3.11 -m venv venv
 ~/apps/repo_mentor_app/venv/bin/pip install --upgrade pip
 ```
 
@@ -146,14 +147,15 @@ ssh -i ~/keys/repo-mentor.pem ec2-user@<EC2_PUBLIC_IP>
 sudo systemctl stop repo-mentor-api
 ```
 
-##### 2. Update the repository
+##### 2. Clone the repository
 ```bash
 sudo -iu repo
-cd ~/apps/repo_mentor
-git pull origin main 
+cd ~/apps
+rm -rf repo_mentor
+git clone https://github.com/kaitozaw/repo_mentor.git
 ```
 ```bash
-cd backend
+cd backend  # if new dependency is installed
 source ~/apps/repo_mentor_app/venv/bin/activate
 pip install -r requirements.txt
 deactivate
