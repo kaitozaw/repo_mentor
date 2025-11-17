@@ -26,12 +26,12 @@ PYTHONPATH=.. uvicorn backend.bff.app:app --reload --port 8000
 
 ### Prerequisites
 - Create an Amazon S3 bucket "repo-mentor".
-- Create an IAM policy "RepoMentorS3Policy" granting s3:ListBucket, s3:GetObject, and s3:PutObject access to {S3_BUCKET_NAME}/repos/*.
+- Create an IAM policy "RepoMentorS3Policy" granting s3:ListBucket, s3:GetObject, and s3:PutObject access to {BUCKET_NAME}/repos/*.
 - Create an IAM role "RepoMentorRole" with RepoMentorS3Policy.
-- Create an EC2 instance with key pair and security group, 
-- Attach RepoMentorEC2Role to the EC2 instance.
+- Create an EC2 instance "repo-mentor" (Amazon Linux 2023, 64bits x86, t3.small) with key pair "repo-mentor.pem" and security group "repo-mentor-sg".
+- Attach RepoMentorRole to the EC2 instance.
 - Amazon API Gateway HTTP API "repo-mentor" with POST /repos route integrated to the EC2 instance (CORS enabled, stage: prod).
-- Deploy the frontend on Cloudflare Pages (dev-agents.pages.dev) connected to the GitHub repo kaitozaw/dev_agents.
+- Deploy the frontend on Cloudflare Pages (repo-mentor.pages.dev) connected to the GitHub repo kaitozaw/repo_mentor.
 - Add a Cloudflare Pages environment variable VITE_API_BASE_URL=https://{API_ID}.execute-api.{REGION}.amazonaws.com/{STAGE}.
 
 ### Frontend (Cloudflare Pages)
@@ -46,7 +46,127 @@ git push origin main
 
 #### Initial Deploy
 
-##### Initial Deploy
+##### 0. Connect to EC2
+```bash
+ssh -i ~/keys/repo-mentor.pem ec2-user@<EC2_PUBLIC_IP>
+```
 
+##### 1. Install base packages
+```bash
+sudo dnf -y update
+sudo dnf -y install git python3 python3-pip
+```
+
+##### 2. Create runtime user (no sudo, no password login)
+```bash
+sudo adduser repo
+sudo passwd -l repo
+sudo mkdir -p /home/repo/.ssh
+sudo chown -R repo:repo /home/repo/.ssh
+sudo chmod 700 /home/repo/.ssh
+```
+
+##### 3. Setup app directory & venv
+```bash
+sudo -iu repo
+mkdir -p ~/apps/repo_mentor_app
+cd ~/apps/repo_mentor_app
+python3 -m venv venv
+~/apps/repo_mentor_app/venv/bin/pip install --upgrade pip
+```
+
+##### 4. Clone repository
+```bash
+cd ~/apps
+git clone https://github.com/kaitozaw/repo_mentor.git
+```
+
+##### 5. Install dependencies into venv
+```bash
+cd ~/apps/repo_mentor
+source ~/apps/repo_mentor_app/venv/bin/activate
+cd backend
+pip install --upgrade pip
+pip install -r requirements.txt
+deactivate
+```
+
+##### 6. Prepare .env
+```bash
+cd ~/apps/repo_mentor/backend
+nano .env   # copy from local
+```
+
+##### 7. Setup systemd service
+```bash
+exit   # repo -> ec2-user
+```
+```bash
+sudo tee /etc/systemd/system/repo-mentor-api.service >/dev/null <<'UNIT'
+[Unit]
+Description=Repo Mentor Backend API (FastAPI + Uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=repo
+Group=repo
+WorkingDirectory=/home/repo/apps/repo_mentor/backend
+EnvironmentFile=/home/repo/apps/repo_mentor/backend/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=..
+ExecStart=/home/repo/apps/repo_mentor_app/venv/bin/uvicorn backend.api:app --host 0.0.0.0 --port 8000
+
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+```
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable repo-mentor-api
+sudo systemctl start repo-mentor-api
+sudo systemctl status repo-mentor-api --no-pager
+sudo journalctl -u repo-mentor-api -f
+```
 
 #### Redeploy
+
+##### 0. Connect to EC2
+```bash
+ssh -i ~/keys/repo-mentor.pem ec2-user@<EC2_PUBLIC_IP>
+```
+
+##### 1. Stop the running service
+```bash
+sudo systemctl stop repo-mentor-api
+```
+
+##### 2. Update the repository
+```bash
+sudo -iu repo
+cd ~/apps/repo_mentor
+git pull origin main 
+```
+```bash
+cd backend
+source ~/apps/repo_mentor_app/venv/bin/activate
+pip install -r requirements.txt
+deactivate
+```
+
+##### 3. Restart the service
+```bash
+exit   # repo -> ec2-user
+sudo systemctl start repo-mentor-api
+```
+
+##### 4. Check service status and logs
+```bash
+sudo systemctl status repo-mentor-api --no-pager
+sudo journalctl -u repo-mentor-api -f
+```
