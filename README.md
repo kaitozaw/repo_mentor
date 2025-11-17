@@ -152,7 +152,7 @@ sudo systemctl stop repo-mentor-api
 ##### 2. Update the repository
 ```bash
 sudo -iu repo
-cd ~/apps/repo-mentor
+cd ~/apps/repo_mentor
 git pull origin main
 cd backend  # if new dependency is installed
 source ~/apps/repo_mentor_app/venv/bin/activate
