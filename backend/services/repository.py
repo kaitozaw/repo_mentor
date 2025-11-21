@@ -1,25 +1,71 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from pydriller import Repository
-from typing import Any, Dict, List, Set
-from .storage.s3 import write_json, list_json_stems
+from typing import Any, Dict, List, Optional, Set
+from .storage.s3 import list_json_stems, read_json, write_json
 from .rag.chunks import build_rag_chunks
 from .rag.index import build_rag_index
+import threading
+import uuid
+
+def get_latest_repository_job(repo_id: str) -> Optional[Dict[str, Any]]:
+    prefix = f"repos/{repo_id}/jobs/"
+    stems = list_json_stems(prefix)
+    if not stems:
+        return None
+
+    latest: Optional[Dict[str, Any]] = None
+
+    for stem in stems:
+        key = f"{prefix}{stem}.json"
+        job = read_json(key)
+        if not job:
+            continue
+        created_at = job.get("created_at")
+        if not created_at:
+            continue
+        if latest is None or created_at > latest.get("created_at", ""):
+            latest = job
+
+    return latest
 
 def ingest_repository(repo_url: str) -> Dict[str, Any]:
     repo_id = _build_repo_folder_name(repo_url)
 
-    # First Layer
+    # --- First layer ---
     _build_commits(repo_url, repo_id)
 
-    # Second Layer
+    # --- Second layer ---
     build_rag_chunks(repo_id)
 
-    # Third Layer
+    # --- Third layer ---
     build_rag_index(repo_id)
 
-    return {
-        "repo_id": repo_id
+    return {"repo_id": repo_id}
+
+def start_ingest_repository_job(repo_url: str) -> Dict[str, Any]:
+    repo_id = _build_repo_folder_name(repo_url)
+    job_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    job = {
+        "job_id": job_id,
+        "created_at": now,
+        "repo_url": repo_url,
+        "status": "accepted",
     }
+    _create_job(repo_id, job_id, job)
+
+    def _run():
+        _update_job_status(repo_id, job_id, "running")
+        try:
+            ingest_repository(repo_url)
+            _update_job_status(repo_id, job_id, "completed")
+        except Exception as e:
+            _update_job_status(repo_id, job_id, "failed", error=str(e))
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    return {"repo_id": repo_id}
 
 def _build_commits(repo_url: str, repo_id: str) -> None:
     prefix = f"repos/{repo_id}/commits/"
@@ -46,10 +92,10 @@ def _build_commits(repo_url: str, repo_id: str) -> None:
                 "merge": commit.merge,
             },
             "stats": {
+                "files": commit.files,
                 "insertions": commit.insertions,
                 "deletions": commit.deletions,
                 "lines": commit.lines,
-                "files": commit.files,
             },
             "files": _build_files_payload(commit),
         }
@@ -92,3 +138,15 @@ def _build_repo_folder_name(repo_url: str) -> str:
     repo = parts[-1]
 
     return f"{owner}_{repo}"
+
+def _create_job(repo_id: str, job_id: str, job: Dict[str, Any]) -> None:
+    key = f"repos/{repo_id}/jobs/{job_id}.json"
+    write_json(key, job)
+
+def _update_job_status(repo_id: str, job_id: str, status: str, **extra: Any) -> None:
+    key = f"repos/{repo_id}/jobs/{job_id}.json"
+    job = read_json(key) or {}
+    job["status"] = status
+    if extra:
+        job.update(extra)
+    write_json(key, job)

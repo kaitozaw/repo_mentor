@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const GITHUB_REPO_REGEX = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\.git\/?$/;
 
 export default function RepoMentor() {
     const [repoId, setRepoId] = useState(null);
+    const [status, setStatus] = useState(null);
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(false);
     const [repoUrl, setRepoUrl] = useState("");
@@ -21,6 +22,7 @@ export default function RepoMentor() {
     const onSubmit = async (e) => {
         e.preventDefault();
         setRepoId("");
+        setStatus(null);
         setError("");
 
         const v = validate(repoUrl);
@@ -57,7 +59,9 @@ export default function RepoMentor() {
                 const msg = data?.error?.message || `Server Error (HTTP ${res.status})`;
                 throw new Error(msg);
             }
-            setRepoId(data?.repo_id || "(unknown repo_id)");
+            const newRepoId = data?.repo_id || null;
+            setRepoId(newRepoId);
+            setStatus("accepted");
         } catch (err) {
             setError(err.name === "AbortError" ? "The request took too long. Please try again later." : "Something went wrong. Please try again.");
         } finally {
@@ -65,6 +69,41 @@ export default function RepoMentor() {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        if (!repoId || !apiBase) return;
+
+        let cancelled = false;
+        let intervalId;
+
+        const fetchStatus = async () => {
+            if (cancelled) return;
+            try {
+                const res = await fetch(`${apiBase}/repository/${repoId}`);
+                if (!res.ok) {
+                    return;
+                }
+                const data = await res.json();
+                const nextStatus = data?.status || "unknown";
+                if (cancelled) return;
+
+                setStatus(nextStatus);
+
+                if (nextStatus === "completed" || nextStatus === "failed") {
+                    if (intervalId) clearInterval(intervalId);
+                }
+            } catch {
+            }
+        };
+
+        fetchStatus();
+        intervalId = setInterval(fetchStatus, 3000);
+
+        return () => {
+            cancelled = true;
+            if (intervalId) clearInterval(intervalId);
+        };
+    }, [repoId, apiBase]);
 
     return (
         <div className="mx-auto max-w-xl p-6">
@@ -99,8 +138,15 @@ export default function RepoMentor() {
                 <div className="mt-4 rounded border border-green-300 bg-green-50 p-3 text-sm text-green-800">
                     <div className="font-medium">Repository accepted</div>
                     <div className="mt-1">
-                        <span className="font-mono">repo_id:</span> <span className="font-mono">{repoId}</span>
+                        <span className="font-mono">repo_id:</span>{" "}
+                        <span className="font-mono">{repoId}</span>
                     </div>
+                    {status && (
+                        <div className="mt-1">
+                            <span className="font-mono">status:</span>{" "}
+                            <span className="font-mono">{status}</span>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

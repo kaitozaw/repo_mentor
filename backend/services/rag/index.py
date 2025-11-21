@@ -13,15 +13,12 @@ def build_rag_index(repo_id: str) -> None:
     if not jsonl:
         return
 
-    ids: List[str] = []
-    texts: List[str] = []
-    
+    texts: List[str] = []    
     for line in jsonl.splitlines():
         line = line.strip()
         if not line:
             continue
         obj = json.loads(line)
-        ids.append(obj["id"])
         texts.append(obj["text"])
 
     if not texts:
