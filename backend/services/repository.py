@@ -2,10 +2,27 @@ from datetime import datetime
 from pydriller import Repository
 from typing import Any, Dict, List, Set
 from .storage.s3 import write_json, list_json_stems
+from .rag.chunks import build_rag_chunks
+from .rag.index import build_rag_index
 
 def ingest_repository(repo_url: str) -> Dict[str, Any]:
     repo_id = _build_repo_folder_name(repo_url)
-    prefix = f"repos/{repo_id}/"
+
+    # First Layer
+    _build_commits(repo_url, repo_id)
+
+    # Second Layer
+    build_rag_chunks(repo_id)
+
+    # Third Layer
+    build_rag_index(repo_id)
+
+    return {
+        "repo_id": repo_id
+    }
+
+def _build_commits(repo_url: str, repo_id: str) -> None:
+    prefix = f"repos/{repo_id}/commits/"
     existing_commit_ids: Set[str] = list_json_stems(prefix)
 
     for commit in Repository(repo_url).traverse_commits():
@@ -38,10 +55,6 @@ def ingest_repository(repo_url: str) -> Dict[str, Any]:
         }
         key = f"{prefix}{commit_id}.json"
         write_json(key, payload)
-
-    return {
-        "repo_id": repo_id
-    }
 
 def _build_files_payload(commit) -> List[Dict[str, Any]]:
     files: List[Dict[str, Any]] = []

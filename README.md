@@ -19,7 +19,7 @@ cp .env.example .env                    # One-Time Setup
 python3 -m venv .venv                   # One-Time Setup
 source .venv/bin/activate
 pip install -r bff/requirements.txt     # One-Time Setup
-PYTHONPATH=.. uvicorn backend.bff.app:app --reload --port 8000
+PYTHONPATH=.. uvicorn backend.api.app:app --reload --port 8000
 ```
 
 ## Cloudflare Pages & EC2 Deployment

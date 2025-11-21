@@ -49,6 +49,32 @@ def read_json(key: str) -> Optional[Dict[str, Any]]:
     except _s3.exceptions.NoSuchKey:
         return None
 
+def read_text(key: str) -> Optional[str]:
+    if LOCAL_AWS:
+        path = LOCAL_S3_ROOT / key
+        if not path.exists():
+            return None
+        return path.read_text(encoding="utf-8")
+
+    try:
+        obj = _s3.get_object(Bucket=BUCKET_NAME, Key=key)
+        return obj["Body"].read().decode("utf-8")
+    except _s3.exceptions.NoSuchKey:
+        return None
+
+def write_bytes(key: str, data: bytes) -> None:
+    if LOCAL_AWS:
+        path = LOCAL_S3_ROOT / key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    else:
+        _s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=key,
+            Body=data,
+            ContentType="application/octet-stream",
+        )
+
 def write_json(key: str, data: Dict[str, Any]) -> None:
     if LOCAL_AWS:
         path = LOCAL_S3_ROOT / key
@@ -60,4 +86,17 @@ def write_json(key: str, data: Dict[str, Any]) -> None:
             Key=key,
             Body=json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
             ContentType="application/json",
+        )
+
+def write_text(key: str, data: str) -> None:
+    if LOCAL_AWS:
+        path = LOCAL_S3_ROOT / key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(data, encoding="utf-8")
+    else:
+        _s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=key,
+            Body=data.encode("utf-8"),
+            ContentType="text/plain; charset=utf-8",
         )
