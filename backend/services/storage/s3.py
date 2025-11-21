@@ -5,7 +5,7 @@ import boto3, json
 
 _s3 = boto3.client("s3", region_name=AWS_REGION)
 
-def list_json_stems(prefix: str) -> Set[str]:
+def list_commits(prefix: str) -> Set[str]:
     if LOCAL_AWS:
         base: Path = LOCAL_S3_ROOT / prefix
         if not base.exists():
@@ -35,6 +35,42 @@ def list_json_stems(prefix: str) -> Set[str]:
         continuation_token = res.get("NextContinuationToken")
 
     return commit_ids
+
+def list_repos(prefix: str) -> Set[str]:
+    if LOCAL_AWS:
+        base: Path = LOCAL_S3_ROOT / prefix
+        if not base.exists():
+            return set()
+        return {
+            p.name for p in base.iterdir()
+            if p.is_dir()
+        }
+
+    repo_ids: Set[str] = set()
+    continuation_token: Optional[str] = None
+
+    while True:
+        params: Dict[str, Any] = {
+            "Bucket": BUCKET_NAME,
+            "Prefix": prefix,
+            "Delimiter": "/",
+        }
+        if continuation_token:
+            params["ContinuationToken"] = continuation_token
+
+        res = _s3.list_objects_v2(**params)
+
+        for cp in res.get("CommonPrefixes", []):
+            full_path = cp.get("Prefix")
+            parts = full_path.split("/")
+            if len(parts) >= 2:
+                repo_ids.add(parts[1])
+
+        if not res.get("IsTruncated"):
+            break
+        continuation_token = res.get("NextContinuationToken")
+
+    return repo_ids
 
 def read_json(key: str) -> Optional[Dict[str, Any]]:
     if LOCAL_AWS:

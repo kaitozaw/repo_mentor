@@ -9,6 +9,9 @@ export default function RepoMentor() {
     const [loading, setLoading] = useState(false);
     const [repoUrl, setRepoUrl] = useState("");
 
+    const [repoOptions, setRepoOptions] = useState([]);
+    const [selectedExistingRepoId, setSelectedExistingRepoId] = useState("");
+
     const apiBaseRaw = import.meta.env.VITE_API_BASE_URL;
     const apiBase = apiBaseRaw ? apiBaseRaw.replace(/\/+$/, "") : "";
 
@@ -80,15 +83,12 @@ export default function RepoMentor() {
             if (cancelled) return;
             try {
                 const res = await fetch(`${apiBase}/repository/${repoId}`);
-                if (!res.ok) {
-                    return;
-                }
+                if (!res.ok) return;
+
                 const data = await res.json();
                 const nextStatus = data?.status || "unknown";
                 if (cancelled) return;
-
                 setStatus(nextStatus);
-
                 if (nextStatus === "completed" || nextStatus === "failed") {
                     if (intervalId) clearInterval(intervalId);
                 }
@@ -104,6 +104,35 @@ export default function RepoMentor() {
             if (intervalId) clearInterval(intervalId);
         };
     }, [repoId, apiBase]);
+
+    useEffect(() => {
+        if (!apiBase) return;
+
+        let cancelled = false;
+
+        const fetchRepositories = async () => {
+            try {
+                const res = await fetch(`${apiBase}/repository`);
+                if (!res.ok) return;
+
+                const data = await res.json();
+                if (!cancelled && Array.isArray(data)) {
+                    setRepoOptions(data);
+                }
+            } catch {
+            }
+        };
+
+        fetchRepositories();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [apiBase]);
+
+    const handleSelectExistingRepo = (e) => {
+        setSelectedExistingRepoId(e.target.value);
+    };
 
     return (
         <div className="mx-auto max-w-xl p-6">
@@ -147,6 +176,26 @@ export default function RepoMentor() {
                             <span className="font-mono">{status}</span>
                         </div>
                     )}
+                </div>
+            )}
+            {repoOptions.length > 0 && (
+                <div className="mt-6">
+                    <label className="block text-sm font-medium mb-1">
+                        Or ask questions about existing repositories!
+                    </label>
+                    <select
+                        className="w-full rounded border px-3 py-2"
+                        value={selectedExistingRepoId}
+                        onChange={handleSelectExistingRepo}
+                        disabled={loading}
+                    >
+                        <option value="">Select a repository…</option>
+                        {repoOptions.map((id) => (
+                            <option key={id} value={id}>
+                                {id}
+                            </option>
+                        ))}
+                    </select>
                 </div>
             )}
         </div>

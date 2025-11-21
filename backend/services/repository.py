@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from pydriller import Repository
 from typing import Any, Dict, List, Optional, Set
-from .storage.s3 import list_json_stems, read_json, write_json
+from .storage.s3 import list_commits, list_repos, read_json, write_json
 from .rag.chunks import build_rag_chunks
 from .rag.index import build_rag_index
 import threading
@@ -9,7 +9,7 @@ import uuid
 
 def get_latest_repository_job(repo_id: str) -> Optional[Dict[str, Any]]:
     prefix = f"repos/{repo_id}/jobs/"
-    stems = list_json_stems(prefix)
+    stems = list_commits(prefix)
     if not stems:
         return None
 
@@ -42,6 +42,10 @@ def ingest_repository(repo_url: str) -> Dict[str, Any]:
 
     return {"repo_id": repo_id}
 
+def list_repositories() -> List[str]:
+    repo_ids = list_repos("repos")
+    return sorted(repo_ids)
+
 def start_ingest_repository_job(repo_url: str) -> Dict[str, Any]:
     repo_id = _build_repo_folder_name(repo_url)
     job_id = str(uuid.uuid4())
@@ -69,7 +73,7 @@ def start_ingest_repository_job(repo_url: str) -> Dict[str, Any]:
 
 def _build_commits(repo_url: str, repo_id: str) -> None:
     prefix = f"repos/{repo_id}/commits/"
-    existing_commit_ids: Set[str] = list_json_stems(prefix)
+    existing_commit_ids: Set[str] = list_commits(prefix)
 
     for commit in Repository(repo_url).traverse_commits():
         dt: datetime = commit.committer_date
