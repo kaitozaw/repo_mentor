@@ -8,9 +8,35 @@ from backend.services.rag.llm_client import embed_texts
 # In-memory cache for FAISS indices and chunks
 _cache: Dict[str, Tuple[Any, List[Dict[str, Any]]]] = {}
 
+def _is_recency_query(query: str) -> bool:
+    """Check if the query is asking about recent/latest changes."""
+    query_lower = query.lower()
+    recency_keywords = [
+        "recent", "latest", "last", "new", "newest",
+        "current", "updated", "what changed", "what's new",
+        "what are the changes", "what updates"
+    ]
+    return any(keyword in query_lower for keyword in recency_keywords)
+
+def _extract_date_from_chunk_id(chunk_id: str) -> int:
+    """Extract date timestamp from chunk ID format: YYYYMMDDHHmmss_hash"""
+    try:
+        date_part = chunk_id.split('_')[0]
+        return int(date_part)
+    except:
+        return 0
+
 def retrieve_chunks(repo_id: str, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
     """
     Retrieve the most relevant chunks for a given query using FAISS.
+
+    For recency queries (e.g., "recent changes", "latest updates"):
+    - Fetches more candidates (top_k * 3)
+    - Re-ranks by combining semantic similarity and recency
+
+    For feature-specific recency queries (e.g., "recent auth changes"):
+    - Uses semantic search to find relevant commits
+    - Returns the most recent ones from that set
 
     Args:
         repo_id: Repository identifier (e.g., "kaitozaw_dev_agents")
@@ -63,21 +89,55 @@ def retrieve_chunks(repo_id: str, query: str, top_k: int = 5) -> List[Dict[str, 
         # 4. Normalize query vector for cosine similarity (FAISS uses inner product)
         faiss.normalize_L2(query_vector)
 
-        # 5. Search the index
-        similarities, indices = index.search(query_vector, min(top_k, len(chunks)))
+        # 5. Determine if this is a recency query
+        is_recency = _is_recency_query(query)
 
-        # 6. Format results
-        results = []
-        for i, (similarity, idx) in enumerate(zip(similarities[0], indices[0])):
+        # For recency queries, fetch more candidates to re-rank
+        search_k = min(top_k * 3 if is_recency else top_k, len(chunks))
+
+        # 6. Search the index
+        similarities, indices = index.search(query_vector, search_k)
+
+        # 7. Format candidates
+        candidates = []
+        for similarity, idx in zip(similarities[0], indices[0]):
             if idx < len(chunks):
                 chunk = chunks[idx]
-                results.append({
+                candidates.append({
                     "id": chunk["id"],
                     "text": chunk["text"],
-                    "similarity": float(similarity)
+                    "similarity": float(similarity),
+                    "date": _extract_date_from_chunk_id(chunk["id"])
                 })
 
-        return results
+        # 8. Re-rank for recency queries
+        if is_recency and len(candidates) > 0:
+            # Normalize dates to 0-1 range
+            max_date = max(c["date"] for c in candidates)
+            min_date = min(c["date"] for c in candidates)
+            date_range = max_date - min_date if max_date > min_date else 1
+
+            # Combine semantic similarity (70%) and recency (30%)
+            for candidate in candidates:
+                recency_score = (candidate["date"] - min_date) / date_range
+                candidate["combined_score"] = (0.7 * candidate["similarity"]) + (0.3 * recency_score)
+
+            # Sort by combined score and take top_k
+            candidates.sort(key=lambda x: x["combined_score"], reverse=True)
+            results = candidates[:top_k]
+        else:
+            # For non-recency queries, just use semantic similarity
+            results = candidates[:top_k]
+
+        # 9. Return results (remove internal scoring fields)
+        return [
+            {
+                "id": r["id"],
+                "text": r["text"],
+                "similarity": r["similarity"]
+            }
+            for r in results
+        ]
 
     except FileNotFoundError as e:
         print(f"FileNotFoundError: {str(e)}")
