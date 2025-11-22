@@ -21,13 +21,21 @@ function linkifyCommitHashes(text, repoUrl) {
     const owner = match[1];
     const repo = match[2].replace('.git', '');
     
-    // Regex to match 7-40 character hex strings (commit hashes)
-    // Matches: 12e50e0, 98bb4588, 7a31cd4a9bc01a, etc.
-    const commitRegex = /\b([0-9a-f]{7,40})\b/gi;
+    // Regex to match commit hashes (7-40 hex chars)
+    // Handles formats like: 20251122031657_98b45889577f8b3b1aec5a42d65ee4a94d841044
+    // Must have at least one letter (to distinguish from pure numbers like timestamps)
+    const commitRegex = /(?:^|[_/:])([0-9a-f]{7,40})(?=[_/:\s]|$)/gi;
     
     return text.replace(commitRegex, (fullMatch, hash) => {
+        // Skip if it's purely numeric (likely a timestamp, not a commit hash)
+        if (/^[0-9]+$/.test(hash)) {
+            return fullMatch;
+        }
+        
         const githubUrl = `https://github.com/${owner}/${repo}/commit/${hash}`;
-        return `<a href="${githubUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-400 underline hover:text-blue-300 font-mono transition-colors">${hash}</a>`;
+        // Keep the prefix character (_, /, :) but make hash clickable
+        const prefix = fullMatch.charAt(0).match(/[_/:]/) ? fullMatch.charAt(0) : '';
+        return `${prefix}<a href="${githubUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-400 underline hover:text-blue-300 font-mono transition-colors">${hash}</a>`;
     });
 }
 
