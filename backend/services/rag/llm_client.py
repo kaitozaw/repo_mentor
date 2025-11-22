@@ -67,17 +67,29 @@ def chat_stream(messages, model="gpt-4o-mini", temperature=0.2, max_tokens=4096)
         raise
 
 def embed_texts(texts: List[str]) -> List[List[float]]:
-    """Generate embeddings with retry logic."""
+    """Generate embeddings with retry logic and batching."""
     if not texts:
         return []
 
+    # Truncate texts to ~6000 tokens (~24000 chars) to stay well under the 8191 token limit
+    MAX_CHARS_PER_TEXT = 24000
+    truncated_texts = [text[:MAX_CHARS_PER_TEXT] if len(text) > MAX_CHARS_PER_TEXT else text for text in texts]
+
+    # Batch requests to avoid hitting the 2048 input limit
+    BATCH_SIZE = 1000
+    all_embeddings: List[List[float]] = []
+
     try:
-        response = _client.embeddings.create(
-            model=EMBEDDING_MODEL,
-            input=texts,
-        )
-        embeddings: List[List[float]] = [item.embedding for item in response.data]
-        return embeddings
+        for i in range(0, len(truncated_texts), BATCH_SIZE):
+            batch = truncated_texts[i:i + BATCH_SIZE]
+            response = _client.embeddings.create(
+                model=EMBEDDING_MODEL,
+                input=batch,
+            )
+            batch_embeddings = [item.embedding for item in response.data]
+            all_embeddings.extend(batch_embeddings)
+
+        return all_embeddings
 
     except APIConnectionError as e:
         print(f"OpenAI API Connection Error: {str(e)}")
