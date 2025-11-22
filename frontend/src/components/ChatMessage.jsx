@@ -1,5 +1,5 @@
 import { marked } from "marked";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import Prism from "prismjs";
 import "prismjs/themes/prism-tomorrow.css";
 import "prismjs/components/prism-javascript";
@@ -10,22 +10,85 @@ import "prismjs/components/prism-bash";
 
 marked.setOptions({ breaks: true, gfm: true });
 
+// Helper function to linkify commit hashes
+function linkifyCommitHashes(text, repoUrl) {
+    if (!text || !repoUrl) return text;
+    
+    // Extract owner/repo from GitHub URL
+    const match = repoUrl.match(/github\.com\/([\w.-]+)\/([\w.-]+)/);
+    if (!match) return text;
+    
+    const owner = match[1];
+    const repo = match[2].replace('.git', '');
+    
+    // Regex to match 7-40 character hex strings (commit hashes)
+    // Matches: 12e50e0, 98bb4588, 7a31cd4a9bc01a, etc.
+    const commitRegex = /\b([0-9a-f]{7,40})\b/gi;
+    
+    return text.replace(commitRegex, (fullMatch, hash) => {
+        const githubUrl = `https://github.com/${owner}/${repo}/commit/${hash}`;
+        return `<a href="${githubUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-400 underline hover:text-blue-300 font-mono transition-colors">${hash}</a>`;
+    });
+}
+
+// Process markdown and linkify commit hashes
+function processMessageContent(message, repoUrl) {
+    if (!message) return '';
+    
+    // First, parse markdown
+    let html = marked.parse(message);
+    
+    // Then linkify commit hashes in text nodes only (not in code blocks or existing links)
+    // We need to be careful to only replace in text content, not in HTML tags
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    
+    // Function to recursively process text nodes
+    function processNode(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            // Only process text nodes that aren't inside <a>, <code>, or <pre>
+            let parent = node.parentElement;
+            let shouldProcess = true;
+            
+            while (parent && parent !== tempDiv) {
+                if (parent.tagName === 'A' || parent.tagName === 'PRE' || 
+                    (parent.tagName === 'CODE' && parent.parentElement?.tagName === 'PRE')) {
+                    shouldProcess = false;
+                    break;
+                }
+                parent = parent.parentElement;
+            }
+            
+            if (shouldProcess && node.textContent) {
+                const linkedText = linkifyCommitHashes(node.textContent, repoUrl);
+                if (linkedText !== node.textContent) {
+                    const span = document.createElement('span');
+                    span.innerHTML = linkedText;
+                    node.replaceWith(span);
+                }
+            }
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+            // Process inline code elements (not in pre blocks)
+            if (node.tagName === 'CODE' && node.parentElement?.tagName !== 'PRE') {
+                const linkedText = linkifyCommitHashes(node.textContent, repoUrl);
+                if (linkedText !== node.textContent) {
+                    node.innerHTML = linkedText;
+                }
+            } else {
+                // Recursively process child nodes
+                Array.from(node.childNodes).forEach(child => processNode(child));
+            }
+        }
+    }
+    
+    processNode(tempDiv);
+    return tempDiv.innerHTML;
+}
+
 export default function ChatMessage({ message, type = "user", timestamp, index = 0, totalMessages = 1, repoUrl = "" }) {
     const isUser = type === "user";
     const isSystem = type === "system";
     const contentRef = useRef(null);
-    
-    // Extract GitHub owner/repo from URL
-    const getGitHubInfo = (url) => {
-        const match = url.match(/github\.com\/([\w.-]+)\/([\w.-]+)/);
-        if (match) {
-            return {
-                owner: match[1],
-                repo: match[2].replace('.git', '')
-            };
-        }
-        return null;
-    };
 
     // Calculate opacity based on message recency (newer = more visible)
     // Latest message: 100%, oldest: 40%
@@ -36,6 +99,12 @@ export default function ChatMessage({ message, type = "user", timestamp, index =
     };
 
     const messageOpacity = calculateOpacity();
+
+    // Process message content with commit links (memoized for performance)
+    const processedContent = useMemo(() => {
+        if (isUser) return message;
+        return processMessageContent(message, repoUrl);
+    }, [message, repoUrl, isUser]);
 
     useEffect(() => {
         if (contentRef.current && !isUser) {
@@ -57,94 +126,8 @@ export default function ChatMessage({ message, type = "user", timestamp, index =
                     pre.appendChild(button);
                 }
             });
-            
-            // Linkify commit IDs
-            const githubInfo = getGitHubInfo(repoUrl);
-            if (githubInfo) {
-                const { owner, repo } = githubInfo;
-                
-                // Find all text nodes and CODE elements
-                const walker = document.createTreeWalker(
-                    contentRef.current,
-                    NodeFilter.SHOW_TEXT,
-                    {
-                        acceptNode: (node) => {
-                            // Skip if parent is already a link or in a pre block
-                            if (node.parentElement.tagName === 'A' || 
-                                node.parentElement.closest('pre')) {
-                                return NodeFilter.FILTER_REJECT;
-                            }
-                            return NodeFilter.FILTER_ACCEPT;
-                        }
-                    }
-                );
-                
-                const textNodes = [];
-                let node;
-                while (node = walker.nextNode()) {
-                    textNodes.push(node);
-                }
-                
-                // Also find inline code elements
-                const codeElements = contentRef.current.querySelectorAll('code:not(pre code)');
-                codeElements.forEach(codeEl => {
-                    if (codeEl.childNodes.length === 1 && codeEl.childNodes[0].nodeType === Node.TEXT_NODE) {
-                        textNodes.push(codeEl.childNodes[0]);
-                    }
-                });
-                
-                // Regex for commit IDs (7-40 character hex strings)
-                // Allow them to be preceded/followed by punctuation like () [] {}
-                const commitRegex = /([0-9a-f]{7,40})/gi;
-                
-                textNodes.forEach((textNode) => {
-                    const text = textNode.textContent;
-                    const matches = [...text.matchAll(commitRegex)];
-                    
-                    if (matches.length > 0) {
-                        const fragment = document.createDocumentFragment();
-                        let lastIndex = 0;
-                        
-                        matches.forEach((match) => {
-                            const commitId = match[1];
-                            const startIndex = match.index;
-                            
-                            // Validate it's actually hex (all digits 0-9 or letters a-f)
-                            if (!/^[0-9a-f]+$/i.test(commitId)) {
-                                return;
-                            }
-                            
-                            // Add text before the commit ID
-                            if (startIndex > lastIndex) {
-                                fragment.appendChild(document.createTextNode(text.substring(lastIndex, startIndex)));
-                            }
-                            
-                            // Create link for commit ID
-                            const link = document.createElement('a');
-                            link.href = `https://github.com/${owner}/${repo}/commit/${commitId}`;
-                            link.textContent = commitId;
-                            link.target = "_blank";
-                            link.rel = "noopener noreferrer";
-                            link.className = "commit-link";
-                            fragment.appendChild(link);
-                            
-                            lastIndex = startIndex + commitId.length;
-                        });
-                        
-                        // Add remaining text
-                        if (lastIndex < text.length) {
-                            fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
-                        }
-                        
-                        // Only replace if we actually created links
-                        if (fragment.childNodes.length > 0) {
-                            textNode.parentNode.replaceChild(fragment, textNode);
-                        }
-                    }
-                });
-            }
         }
-    }, [message, isUser, repoUrl]);
+    }, [processedContent, isUser]);
 
     const formatTime = (timestamp) => {
         if (!timestamp) return "";
@@ -221,7 +204,7 @@ export default function ChatMessage({ message, type = "user", timestamp, index =
                         <div 
                             ref={contentRef}
                             className="text-sm leading-relaxed prose"
-                            dangerouslySetInnerHTML={{ __html: marked.parse(message || '') }}
+                            dangerouslySetInnerHTML={{ __html: processedContent }}
                         />
                     )}
                 </div>
