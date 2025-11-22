@@ -8,6 +8,30 @@ from backend.services.rag.llm_client import embed_texts
 # In-memory cache for FAISS indices and chunks
 _cache: Dict[str, Tuple[Any, List[Dict[str, Any]]]] = {}
 
+def _extract_commit_id_from_query(query: str) -> Optional[str]:
+    """Extract commit ID or hash from query if present."""
+    import re
+
+    # Match full chunk ID format: YYYYMMDDHHmmss_hash
+    chunk_id_pattern = r'\d{14}_[a-f0-9]{40}'
+    match = re.search(chunk_id_pattern, query)
+    if match:
+        return match.group(0)
+
+    # Match just the commit hash (40 char hex - full hash)
+    hash_pattern = r'[a-f0-9]{40}'
+    match = re.search(hash_pattern, query)
+    if match:
+        return match.group(0)
+
+    # Match short commit hash (7-39 char hex)
+    short_hash_pattern = r'[a-f0-9]{7,39}'
+    match = re.search(short_hash_pattern, query)
+    if match:
+        return match.group(0)
+
+    return None
+
 def _is_recency_query(query: str) -> bool:
     """Check if the query is asking about recent/latest changes."""
     query_lower = query.lower()
@@ -75,7 +99,29 @@ def retrieve_chunks(repo_id: str, query: str, top_k: int = 5) -> List[Dict[str, 
         if not chunks:
             return []
 
-        # 3. Generate embedding for the query
+        # 3. Check if query contains a commit ID or hash
+        commit_id = _extract_commit_id_from_query(query)
+        if commit_id:
+            # Direct lookup by commit ID or hash
+            results = []
+            for chunk in chunks:
+                chunk_id = chunk["id"]
+                # Match full chunk ID or just the hash part
+                if chunk_id == commit_id or chunk_id.endswith(f"_{commit_id}") or commit_id in chunk_id:
+                    results.append({
+                        "id": chunk_id,
+                        "text": chunk["text"],
+                        "similarity": 1.0  # Perfect match
+                    })
+
+            # If we found exact match(es), return them
+            if results:
+                return results[:top_k]
+
+            # If no exact match, fall through to semantic search
+            # (user might have pasted a partial hash or wrong hash)
+
+        # 4. Generate embedding for the query
         try:
             query_embeddings = embed_texts([query])
             if not query_embeddings:
@@ -86,19 +132,19 @@ def retrieve_chunks(repo_id: str, query: str, top_k: int = 5) -> List[Dict[str, 
 
         query_vector = np.array(query_embeddings[0], dtype=np.float32).reshape(1, -1)
 
-        # 4. Normalize query vector for cosine similarity (FAISS uses inner product)
+        # 5. Normalize query vector for cosine similarity (FAISS uses inner product)
         faiss.normalize_L2(query_vector)
 
-        # 5. Determine if this is a recency query
+        # 6. Determine if this is a recency query
         is_recency = _is_recency_query(query)
 
         # For recency queries, fetch more candidates to re-rank
         search_k = min(top_k * 3 if is_recency else top_k, len(chunks))
 
-        # 6. Search the index
+        # 7. Search the index
         similarities, indices = index.search(query_vector, search_k)
 
-        # 7. Format candidates
+        # 8. Format candidates
         candidates = []
         for similarity, idx in zip(similarities[0], indices[0]):
             if idx < len(chunks):
@@ -110,7 +156,7 @@ def retrieve_chunks(repo_id: str, query: str, top_k: int = 5) -> List[Dict[str, 
                     "date": _extract_date_from_chunk_id(chunk["id"])
                 })
 
-        # 8. Re-rank for recency queries
+        # 9. Re-rank for recency queries
         if is_recency and len(candidates) > 0:
             # Normalize dates to 0-1 range
             max_date = max(c["date"] for c in candidates)
@@ -129,7 +175,7 @@ def retrieve_chunks(repo_id: str, query: str, top_k: int = 5) -> List[Dict[str, 
             # For non-recency queries, just use semantic similarity
             results = candidates[:top_k]
 
-        # 9. Return results (remove internal scoring fields)
+        # 10. Return results (remove internal scoring fields)
         return [
             {
                 "id": r["id"],
