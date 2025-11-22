@@ -1,5 +1,5 @@
 import { marked } from "marked";
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import Prism from "prismjs";
 import "prismjs/themes/prism-tomorrow.css";
 import "prismjs/components/prism-javascript";
@@ -103,16 +103,45 @@ export default function ChatMessage({ message, type = "user", timestamp, index =
     const isUser = type === "user";
     const isSystem = type === "system";
     const contentRef = useRef(null);
+    const messageRef = useRef(null);
+    const [messageOpacity, setMessageOpacity] = useState(1);
 
-    // Calculate opacity based on message recency (newer = more visible)
-    // Latest message: 100%, oldest: 40%
-    const calculateOpacity = () => {
-        if (totalMessages <= 1) return 1;
-        const position = index / (totalMessages - 1); // 0 (oldest) to 1 (newest)
-        return 0.4 + (position * 0.6); // Range from 0.4 to 1.0
-    };
+    // Use IntersectionObserver to fade messages based on viewport visibility
+    useEffect(() => {
+        if (!messageRef.current) return;
 
-    const messageOpacity = calculateOpacity();
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    // Calculate opacity based on how much is visible
+                    const ratio = entry.intersectionRatio;
+                    
+                    if (ratio >= 0.5) {
+                        // Fully visible or mostly visible - 100% opacity
+                        setMessageOpacity(1);
+                    } else if (ratio > 0) {
+                        // Partially visible - fade between 60% and 100%
+                        setMessageOpacity(0.6 + (ratio * 0.8));
+                    } else {
+                        // Not visible - 60% opacity
+                        setMessageOpacity(0.6);
+                    }
+                });
+            },
+            {
+                threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+                rootMargin: '-10% 0px -10% 0px' // Fade at top/bottom 10% of viewport
+            }
+        );
+
+        observer.observe(messageRef.current);
+
+        return () => {
+            if (messageRef.current) {
+                observer.unobserve(messageRef.current);
+            }
+        };
+    }, []);
 
     // Process message content with commit links (memoized for performance)
     const processedContent = useMemo(() => {
@@ -164,6 +193,7 @@ export default function ChatMessage({ message, type = "user", timestamp, index =
 
     return (
         <div 
+            ref={messageRef}
             className={`group flex gap-3 mb-4 animate-fadeIn ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
         >
             {/* Avatar - GitHub Dark style */}
