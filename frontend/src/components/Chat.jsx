@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const STREAM_BASE_URL = import.meta.env.VITE_STREAM_BASE_URL || API_BASE_URL;
 
 export default function Chat({ repoId, repoName, messages, setMessages }) {
   const [inputMessage, setInputMessage] = useState('');
@@ -41,7 +42,7 @@ export default function Chat({ repoId, repoName, messages, setMessages }) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
 
-      const response = await fetch(`${API_BASE_URL}/chat/stream`, {
+      const response = await fetch(`${STREAM_BASE_URL}/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

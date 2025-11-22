@@ -9,7 +9,7 @@ app = FastAPI(title="Repo Mentor API")
 if LOCAL_AWS:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173",],
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "https://repo-mentor.pages.dev"],
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
         allow_credentials=True,
