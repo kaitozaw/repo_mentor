@@ -44,28 +44,8 @@ AVOID:
 
 
 def summarise_commit(payload: dict) -> str:
-    """Generate a summary for a single commit during chunk creation."""
-    messages = [
-        {
-            "role": "system",
-            "content": COMMIT_SUMMARY_PROMPT,
-        },
-        {
-            "role": "user",
-            "content": (
-                "Here is one commit as JSON. Summarize it in the following structure:\n\n"
-                "Summary:\n"
-                "- ...\n\n"
-                "Files:\n"
-                "- <path>: <short description>\n\n"
-                "Commit JSON:\n"
-                f"{json.dumps(payload, ensure_ascii=False)}"
-            ),
-        },
-    ]
-
-    return chat(messages, model="gpt-4.1-mini", temperature=0.2, max_tokens=4096)
-
+    """Build the system prompt for generatubg a summary for a single commit during chunk creation."""
+    return COMMIT_SUMMARY_PROMPT.format()
 
 def build_chat_prompt(context: str) -> str:
     """Build the system prompt for chat responses with retrieved context."""

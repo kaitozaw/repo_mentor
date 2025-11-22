@@ -1,4 +1,5 @@
 from backend.services.storage.s3 import list_commits, read_json, write_text
+from backend.services.rag.llm_client import chat as llm_chat
 from backend.services.rag.prompt import summarise_commit
 from typing import Any, Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor
@@ -61,7 +62,31 @@ def _generate_chunk_text(commit: Dict[str, Any]) -> str:
 
     try:
         payload = _create_llm_payload(commit)
-        llm_summary = summarise_commit(payload)
+        system_message = summarise_commit(payload)
+        messages = [
+            {
+                "role": "system",
+                "content": system_message,
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Here is one commit as JSON. Summarize it in the following structure:\n\n"
+                    "Summary:\n"
+                    "- ...\n\n"
+                    "Files:\n"
+                    "- <path>: <short description>\n\n"
+                    "Commit JSON:\n"
+                    f"{json.dumps(payload, ensure_ascii=False)}"
+                ),
+            },
+        ]
+        llm_summary = llm_chat(
+            messages=messages,
+            model="gpt-4o-mini",
+            temperature=0.2,
+            max_tokens=4096
+        )
         body = llm_summary or _build_fallback_body(commit)
     except Exception:
         body = _build_fallback_body(commit)
