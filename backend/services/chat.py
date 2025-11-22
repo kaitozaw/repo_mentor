@@ -48,7 +48,7 @@ def chat_with_repo(repo_id: str, user_message: str, top_k: int = 5) -> Dict[str,
             messages=messages,
             model="gpt-4o-mini",
             temperature=0.5,  # Lower temp = faster, more focused responses
-            max_tokens=250  # ~100-150 words for concise but informative responses
+            max_tokens=400  # Enough to complete responses without cutting off (~150-200 words)
         )
 
         # 6. Return response with metadata
