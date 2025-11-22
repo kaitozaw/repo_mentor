@@ -98,6 +98,19 @@ def read_text(key: str) -> Optional[str]:
     except _s3.exceptions.NoSuchKey:
         return None
 
+def read_bytes(key: str) -> Optional[bytes]:
+    if LOCAL_AWS:
+        path = LOCAL_S3_ROOT / key
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {key}")
+        return path.read_bytes()
+
+    try:
+        obj = _s3.get_object(Bucket=BUCKET_NAME, Key=key)
+        return obj["Body"].read()
+    except _s3.exceptions.NoSuchKey:
+        raise FileNotFoundError(f"File not found in S3: {key}")
+
 def write_bytes(key: str, data: bytes) -> None:
     if LOCAL_AWS:
         path = LOCAL_S3_ROOT / key
