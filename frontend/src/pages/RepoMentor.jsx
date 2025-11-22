@@ -15,6 +15,7 @@ export default function RepoMentor() {
     // Repository selection
     const [repoOptions, setRepoOptions] = useState([]);
     const [selectedRepoId, setSelectedRepoId] = useState("");
+    const [repoUrls, setRepoUrls] = useState({}); // Map repo IDs to URLs
     
     // Chat per repository
     const [chatHistories, setChatHistories] = useState({});
@@ -138,6 +139,13 @@ export default function RepoMentor() {
             const newRepoId = data?.repo_id || "unknown";
             setSelectedRepoId(newRepoId);
             setRepoStatus("processing");
+            
+            // Store the URL for this repo ID
+            setRepoUrls(prev => ({
+                ...prev,
+                [newRepoId]: trimmed
+            }));
+            
             setRepoUrl("");
             
             // Refresh repo list
@@ -383,6 +391,7 @@ export default function RepoMentor() {
                             timestamp={msg.timestamp}
                             index={index}
                             totalMessages={currentMessages.length}
+                            repoUrl={repoUrls[selectedRepoId] || ""}
                         />
                     ))}
                     {chatLoading && <TypingIndicator />}

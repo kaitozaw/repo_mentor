@@ -143,3 +143,32 @@ body {
 .copy-button:active {
   background: #161b22;
 }
+
+/* Commit link styling */
+.commit-link {
+  color: #58a6ff !important;
+  text-decoration: none !important;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 2px 6px;
+  background: rgba(110, 118, 129, 0.2);
+  border-radius: 6px;
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.commit-link:hover {
+  background: rgba(88, 166, 255, 0.15);
+  border-color: rgba(88, 166, 255, 0.4);
+  text-decoration: underline !important;
+}
+.commit-link::before {
+  content: "→";
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.commit-link:hover::before {
+  opacity: 1;
+}

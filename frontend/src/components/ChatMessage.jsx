@@ -10,10 +10,22 @@ import "prismjs/components/prism-bash";
 
 marked.setOptions({ breaks: true, gfm: true });
 
-export default function ChatMessage({ message, type = "user", timestamp, index = 0, totalMessages = 1 }) {
+export default function ChatMessage({ message, type = "user", timestamp, index = 0, totalMessages = 1, repoUrl = "" }) {
     const isUser = type === "user";
     const isSystem = type === "system";
     const contentRef = useRef(null);
+    
+    // Extract GitHub owner/repo from URL
+    const getGitHubInfo = (url) => {
+        const match = url.match(/github\.com\/([\w.-]+)\/([\w.-]+)/);
+        if (match) {
+            return {
+                owner: match[1],
+                repo: match[2].replace('.git', '')
+            };
+        }
+        return null;
+    };
 
     // Calculate opacity based on message recency (newer = more visible)
     // Latest message: 100%, oldest: 40%
@@ -45,8 +57,78 @@ export default function ChatMessage({ message, type = "user", timestamp, index =
                     pre.appendChild(button);
                 }
             });
+            
+            // Linkify commit IDs
+            const githubInfo = getGitHubInfo(repoUrl);
+            if (githubInfo) {
+                const { owner, repo } = githubInfo;
+                
+                // Find all text nodes and replace commit IDs with links
+                const walker = document.createTreeWalker(
+                    contentRef.current,
+                    NodeFilter.SHOW_TEXT,
+                    {
+                        acceptNode: (node) => {
+                            // Skip if parent is already a link or in a code block
+                            if (node.parentElement.tagName === 'A' || 
+                                node.parentElement.tagName === 'CODE' ||
+                                node.parentElement.closest('pre')) {
+                                return NodeFilter.FILTER_REJECT;
+                            }
+                            return NodeFilter.FILTER_ACCEPT;
+                        }
+                    }
+                );
+                
+                const textNodes = [];
+                let node;
+                while (node = walker.nextNode()) {
+                    textNodes.push(node);
+                }
+                
+                // Regex for commit IDs (7-40 character hex strings)
+                const commitRegex = /\b([0-9a-f]{7,40})\b/gi;
+                
+                textNodes.forEach((textNode) => {
+                    const text = textNode.textContent;
+                    const matches = [...text.matchAll(commitRegex)];
+                    
+                    if (matches.length > 0) {
+                        const fragment = document.createDocumentFragment();
+                        let lastIndex = 0;
+                        
+                        matches.forEach((match) => {
+                            const commitId = match[1];
+                            const startIndex = match.index;
+                            
+                            // Add text before the commit ID
+                            if (startIndex > lastIndex) {
+                                fragment.appendChild(document.createTextNode(text.substring(lastIndex, startIndex)));
+                            }
+                            
+                            // Create link for commit ID
+                            const link = document.createElement('a');
+                            link.href = `https://github.com/${owner}/${repo}/commit/${commitId}`;
+                            link.textContent = commitId;
+                            link.target = "_blank";
+                            link.rel = "noopener noreferrer";
+                            link.className = "commit-link";
+                            fragment.appendChild(link);
+                            
+                            lastIndex = startIndex + commitId.length;
+                        });
+                        
+                        // Add remaining text
+                        if (lastIndex < text.length) {
+                            fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
+                        }
+                        
+                        textNode.parentNode.replaceChild(fragment, textNode);
+                    }
+                });
+            }
         }
-    }, [message, isUser]);
+    }, [message, isUser, repoUrl]);
 
     const formatTime = (timestamp) => {
         if (!timestamp) return "";
