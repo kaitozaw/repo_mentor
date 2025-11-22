@@ -14,6 +14,7 @@ export default function RepoMentor() {
     const [error, setError] = useState(null);
     const [messages, setMessages] = useState([]);
     const [chatLoading, setChatLoading] = useState(false);
+    const [repoStatus, setRepoStatus] = useState(null);
     
     const chatRef = useRef(null);
     const apiBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
@@ -36,6 +37,61 @@ export default function RepoMentor() {
     useEffect(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
     }, [messages, chatLoading]);
+
+    // Poll repository status when in progress phase
+    useEffect(() => {
+        if (phase !== "progress" || !repoId || !apiBase) return;
+
+        let cancelled = false;
+        let intervalId;
+
+        const checkStatus = async () => {
+            if (cancelled) return;
+            
+            try {
+                const res = await fetch(`${apiBase}/repository/${repoId}`);
+                if (!res.ok) return;
+
+                const data = await res.json();
+                const status = data?.status || "unknown";
+                
+                if (cancelled) return;
+                setRepoStatus(status);
+
+                if (status === "completed") {
+                    clearInterval(intervalId);
+                    
+                    const welcome = {
+                        id: Date.now(),
+                        type: "system",
+                        content: "Repository loaded successfully! Ask me anything.",
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    setMessages([welcome]);
+                    localStorage.setItem("chatHistory", JSON.stringify([welcome]));
+                    setPhase("chat");
+                } else if (status === "failed") {
+                    clearInterval(intervalId);
+                    setError("Repository analysis failed. Please try again.");
+                    setPhase("submission");
+                }
+            } catch (err) {
+                console.error("Status check error:", err);
+            }
+        };
+
+        // Initial check
+        checkStatus();
+        
+        // Poll every 2 seconds
+        intervalId = setInterval(checkStatus, 2000);
+
+        return () => {
+            cancelled = true;
+            if (intervalId) clearInterval(intervalId);
+        };
+    }, [phase, repoId, apiBase]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -66,19 +122,12 @@ export default function RepoMentor() {
 
             const newRepoId = data?.repo_id || "unknown";
             setRepoId(newRepoId);
+            setRepoStatus("processing");
             
             localStorage.setItem("currentRepo", JSON.stringify({ repoId: newRepoId, repoUrl: trimmed }));
             
-            const welcome = {
-                id: Date.now(),
-                type: "system",
-                content: "Repository loaded successfully! Ask me anything.",
-                timestamp: new Date().toISOString()
-            };
-            
-            setMessages([welcome]);
-            localStorage.setItem("chatHistory", JSON.stringify([welcome]));
-            setPhase("chat");
+            // Move to progress phase
+            setPhase("progress");
         } catch (err) {
             setError(err.name === "AbortError" ? "Request timeout" : err.message);
         } finally {
@@ -137,6 +186,53 @@ export default function RepoMentor() {
             setMessages([]);
         }
     };
+
+    if (phase === "progress") {
+        return (
+            <div className="min-h-screen bg-black flex items-center justify-center p-6">
+                <div className="w-full max-w-lg text-center">
+                    <div className="inline-flex items-center justify-center w-20 h-20 bg-gray-800 rounded-full mb-6 border border-gray-700 animate-pulse">
+                        <svg className="w-10 h-10 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </div>
+                    
+                    <h2 className="text-2xl font-semibold text-gray-100 mb-3">
+                        Analyzing Repository
+                    </h2>
+                    <p className="text-gray-400 mb-6">
+                        Repo Mentor is analyzing your repository...
+                    </p>
+                    
+                    <div className="bg-gray-900 rounded-lg border border-gray-700 p-6 mb-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <span className="text-sm font-medium text-gray-300">Status:</span>
+                            <span className="text-sm font-mono text-blue-400 capitalize">
+                                {repoStatus || "processing"}
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-gray-300">Repository:</span>
+                            <span className="text-sm font-mono text-gray-400 truncate max-w-xs">
+                                {repoId}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: "0ms"}}></div>
+                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: "150ms"}}></div>
+                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: "300ms"}}></div>
+                    </div>
+                    
+                    <p className="text-xs text-gray-500 mt-6">
+                        This may take a few moments depending on repository size
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     if (phase === "submission") {
         return (
