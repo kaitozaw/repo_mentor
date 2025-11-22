@@ -12,11 +12,18 @@ marked.setOptions({ breaks: true, gfm: true });
 
 // Helper function to linkify commit hashes
 function linkifyCommitHashes(text, repoUrl) {
-    if (!text || !repoUrl) return text;
+    if (!text) return text;
+    if (!repoUrl || repoUrl.trim() === '') {
+        console.warn('linkifyCommitHashes: No repoUrl provided, skipping linkification');
+        return text;
+    }
     
     // Extract owner/repo from GitHub URL
     const match = repoUrl.match(/github\.com\/([\w.-]+)\/([\w.-]+)/);
-    if (!match) return text;
+    if (!match) {
+        console.warn('linkifyCommitHashes: Could not extract owner/repo from:', repoUrl);
+        return text;
+    }
     
     const owner = match[1];
     const repo = match[2].replace('.git', '');
@@ -35,7 +42,7 @@ function linkifyCommitHashes(text, repoUrl) {
         const githubUrl = `https://github.com/${owner}/${repo}/commit/${hash}`;
         // Keep the prefix character (_, /, :) but make hash clickable
         const prefix = fullMatch.charAt(0).match(/[_/:]/) ? fullMatch.charAt(0) : '';
-        return `${prefix}<a href="${githubUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-400 underline hover:text-blue-300 font-mono transition-colors">${hash}</a>`;
+        return `${prefix}<a href="${githubUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-400 underline hover:text-blue-300 font-mono transition-colors cursor-pointer" style="pointer-events: auto;">${hash}</a>`;
     });
 }
 
