@@ -85,7 +85,7 @@ function processMessageContent(message, repoUrl) {
     return tempDiv.innerHTML;
 }
 
-export default function ChatMessage({ message, type = "user", timestamp, index = 0, totalMessages = 1, repoUrl = "" }) {
+export default function ChatMessage({ message, type = "user", timestamp, index = 0, totalMessages = 1, repoUrl = "", retrievedChunks = [] }) {
     const isUser = type === "user";
     const isSystem = type === "system";
     const contentRef = useRef(null);
@@ -201,11 +201,37 @@ export default function ChatMessage({ message, type = "user", timestamp, index =
                             {message}
                         </div>
                     ) : (
-                        <div 
-                            ref={contentRef}
-                            className="text-sm leading-relaxed prose"
-                            dangerouslySetInnerHTML={{ __html: processedContent }}
-                        />
+                        <>
+                            <div 
+                                ref={contentRef}
+                                className="text-sm leading-relaxed prose"
+                                dangerouslySetInnerHTML={{ __html: processedContent }}
+                            />
+                            
+                            {/* Retrieved chunks (sources used) */}
+                            {retrievedChunks && retrievedChunks.length > 0 && (
+                                <details className="mt-3 text-xs">
+                                    <summary className="cursor-pointer text-gray-400 hover:text-gray-300 transition-colors flex items-center gap-1">
+                                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                            <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z" />
+                                        </svg>
+                                        {retrievedChunks.length} source{retrievedChunks.length !== 1 ? 's' : ''} used
+                                    </summary>
+                                    <div className="mt-2 space-y-2 pl-1">
+                                        {retrievedChunks.map((chunk, idx) => (
+                                            <div key={idx} className="bg-gray-800 bg-opacity-50 rounded-md p-2 border border-gray-700">
+                                                <div className="font-mono text-[10px] text-gray-400 break-all">
+                                                    {chunk.id}
+                                                </div>
+                                                <div className="text-[11px] mt-1 text-gray-500">
+                                                    Similarity: <span className="text-blue-400 font-medium">{(chunk.similarity * 100).toFixed(1)}%</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </details>
+                            )}
+                        </>
                     )}
                 </div>
             </div>

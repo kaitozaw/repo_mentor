@@ -204,7 +204,8 @@ export default function RepoMentor() {
                 id: Date.now() + 1,
                 type: "bot",
                 content: data?.message || "I couldn't process that request.",
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                retrievedChunks: data?.retrieved_chunks || []
             };
 
             setChatHistories(prev => ({
@@ -392,6 +393,7 @@ export default function RepoMentor() {
                             index={index}
                             totalMessages={currentMessages.length}
                             repoUrl={repoUrls[selectedRepoId] || ""}
+                            retrievedChunks={msg.retrievedChunks || []}
                         />
                     ))}
                     {chatLoading && <TypingIndicator />}
