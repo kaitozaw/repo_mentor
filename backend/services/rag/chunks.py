@@ -1,4 +1,4 @@
-from backend.services.storage.s3 import list_json_stems, read_json, write_text
+from backend.services.storage.s3 import list_commits, read_json, write_text
 from backend.services.rag.prompt import summarise_commit
 from typing import Any, Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor
@@ -29,7 +29,7 @@ MAX_WORKERS = 10
 # --- Core logic ---
 def build_rag_chunks(repo_id: str) -> None:
     commits_prefix = f"repos/{repo_id}/commits/"
-    commit_stems = sorted(list_json_stems(commits_prefix))
+    commit_stems = sorted(list_commits(commits_prefix))
     chunks: List[Dict[str, Any]] = []
 
     def _process(stem: str) -> Optional[Dict[str, Any]]:

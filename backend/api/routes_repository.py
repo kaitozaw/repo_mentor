@@ -1,4 +1,4 @@
-from backend.services.repository import get_latest_repository_job, start_ingest_repository_job
+from backend.services.repository import get_latest_repository_job, list_repositories, start_ingest_repository_job
 from fastapi import APIRouter, HTTPException
 from pydantic import AnyUrl, BaseModel
 
@@ -6,6 +6,10 @@ router = APIRouter()
 
 class RepositoryCreate(BaseModel):
     repo_url: AnyUrl
+
+@router.get("/repository")
+def get_all_repository():
+    return list_repositories()
 
 @router.get("/repository/{repo_id}")
 def get_repository_state(repo_id: str):
