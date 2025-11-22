@@ -63,15 +63,14 @@ export default function ChatMessage({ message, type = "user", timestamp, index =
             if (githubInfo) {
                 const { owner, repo } = githubInfo;
                 
-                // Find all text nodes and replace commit IDs with links
+                // Find all text nodes and CODE elements
                 const walker = document.createTreeWalker(
                     contentRef.current,
                     NodeFilter.SHOW_TEXT,
                     {
                         acceptNode: (node) => {
-                            // Skip if parent is already a link or in a code block
+                            // Skip if parent is already a link or in a pre block
                             if (node.parentElement.tagName === 'A' || 
-                                node.parentElement.tagName === 'CODE' ||
                                 node.parentElement.closest('pre')) {
                                 return NodeFilter.FILTER_REJECT;
                             }
@@ -86,8 +85,17 @@ export default function ChatMessage({ message, type = "user", timestamp, index =
                     textNodes.push(node);
                 }
                 
+                // Also find inline code elements
+                const codeElements = contentRef.current.querySelectorAll('code:not(pre code)');
+                codeElements.forEach(codeEl => {
+                    if (codeEl.childNodes.length === 1 && codeEl.childNodes[0].nodeType === Node.TEXT_NODE) {
+                        textNodes.push(codeEl.childNodes[0]);
+                    }
+                });
+                
                 // Regex for commit IDs (7-40 character hex strings)
-                const commitRegex = /\b([0-9a-f]{7,40})\b/gi;
+                // Allow them to be preceded/followed by punctuation like () [] {}
+                const commitRegex = /([0-9a-f]{7,40})/gi;
                 
                 textNodes.forEach((textNode) => {
                     const text = textNode.textContent;
@@ -100,6 +108,11 @@ export default function ChatMessage({ message, type = "user", timestamp, index =
                         matches.forEach((match) => {
                             const commitId = match[1];
                             const startIndex = match.index;
+                            
+                            // Validate it's actually hex (all digits 0-9 or letters a-f)
+                            if (!/^[0-9a-f]+$/i.test(commitId)) {
+                                return;
+                            }
                             
                             // Add text before the commit ID
                             if (startIndex > lastIndex) {
@@ -123,7 +136,10 @@ export default function ChatMessage({ message, type = "user", timestamp, index =
                             fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
                         }
                         
-                        textNode.parentNode.replaceChild(fragment, textNode);
+                        // Only replace if we actually created links
+                        if (fragment.childNodes.length > 0) {
+                            textNode.parentNode.replaceChild(fragment, textNode);
+                        }
                     }
                 });
             }
