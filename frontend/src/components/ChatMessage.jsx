@@ -31,6 +31,12 @@ function linkifyCommitHashes(text, repoUrl) {
     });
 }
 
+// Helper function to render chunk ID with clickable commit hashes
+function renderChunkId(chunkId, repoUrl) {
+    const linkedHtml = linkifyCommitHashes(chunkId, repoUrl);
+    return { __html: linkedHtml };
+}
+
 // Process markdown and linkify commit hashes
 function processMessageContent(message, repoUrl) {
     if (!message) return '';
@@ -225,9 +231,10 @@ export default function ChatMessage({ message, type = "user", timestamp, index =
                                     <div className="mt-2 space-y-2 pl-1">
                                         {retrievedChunks.map((chunk, idx) => (
                                             <div key={idx} className="bg-gray-800 bg-opacity-50 rounded-md p-2 border border-gray-700">
-                                                <div className="font-mono text-[10px] text-gray-400 break-all">
-                                                    {chunk.id}
-                                                </div>
+                                                <div 
+                                                    className="font-mono text-[10px] text-gray-400 break-all"
+                                                    dangerouslySetInnerHTML={renderChunkId(chunk.id, repoUrl)}
+                                                />
                                                 <div className="text-[11px] mt-1 text-gray-500">
                                                     Similarity: <span className="text-blue-400 font-medium">{(chunk.similarity * 100).toFixed(1)}%</span>
                                                 </div>
