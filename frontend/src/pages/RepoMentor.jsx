@@ -100,7 +100,13 @@ export default function RepoMentor() {
                     setPhase("chat");
                 } else if (status === "failed") {
                     clearInterval(intervalId);
-                    setError("Repository analysis failed. Please try again.");
+                    const errorMsg = data?.error || "Repository analysis failed";
+                    // Check for rate limit errors
+                    if (errorMsg.includes("rate_limit") || errorMsg.includes("429")) {
+                        setError("OpenAI rate limit reached. Please wait a few minutes and try again.");
+                    } else {
+                        setError(`Repository analysis failed: ${errorMsg}`);
+                    }
                     setPhase("selection");
                     setSelectedRepoId("");
                 }
@@ -301,9 +307,10 @@ export default function RepoMentor() {
                         <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: "300ms"}}></div>
                     </div>
                     
-                    <p className="text-xs text-gray-500 mt-6">
-                        This may take a few moments depending on repository size
-                    </p>
+                    <div className="text-xs text-gray-500 mt-6 space-y-2">
+                        <p>This may take a few moments depending on repository size</p>
+                        <p className="text-yellow-500/80">⚠️ Large repositories may hit OpenAI rate limits</p>
+                    </div>
                 </div>
             </div>
         );
