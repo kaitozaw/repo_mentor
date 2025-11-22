@@ -68,9 +68,18 @@ export default function RepoMentor() {
 
                 const data = await res.json();
                 const status = data?.status || "unknown";
+                const repoUrl = data?.repo_url;
                 
                 if (cancelled) return;
                 setRepoStatus(status);
+                
+                // Store repo URL if we got it
+                if (repoUrl && !repoUrls[selectedRepoId]) {
+                    setRepoUrls(prev => ({
+                        ...prev,
+                        [selectedRepoId]: repoUrl
+                    }));
+                }
 
                 if (status === "completed") {
                     clearInterval(intervalId);
@@ -160,7 +169,7 @@ export default function RepoMentor() {
         }
     };
 
-    const handleSelectRepo = (repoId) => {
+    const handleSelectRepo = async (repoId) => {
         setSelectedRepoId(repoId);
         
         // Initialize chat history for this repo if it doesn't exist
@@ -169,6 +178,24 @@ export default function RepoMentor() {
                 ...prev,
                 [repoId]: []
             }));
+        }
+        
+        // Fetch repo URL if we don't have it yet
+        if (!repoUrls[repoId] && apiBase) {
+            try {
+                const res = await fetch(`${apiBase}/repository/${repoId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data?.repo_url) {
+                        setRepoUrls(prev => ({
+                            ...prev,
+                            [repoId]: data.repo_url
+                        }));
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to fetch repo URL:", err);
+            }
         }
         
         setPhase("chat");
