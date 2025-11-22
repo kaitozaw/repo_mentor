@@ -2,45 +2,58 @@ import { useState, useEffect, useRef } from "react";
 import ChatMessage from "../components/ChatMessage";
 import InputBar from "../components/InputBar";
 import { TypingIndicator } from "../components/LoadingIndicator";
-import RepoCard from "../components/RepoCard";
 
 const GITHUB_REPO_REGEX = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\.git\/?$/;
 
 export default function RepoMentor() {
-    const [phase, setPhase] = useState("submission");
+    const [phase, setPhase] = useState("selection"); // selection, progress, chat
     const [repoUrl, setRepoUrl] = useState("");
-    const [repoId, setRepoId] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [messages, setMessages] = useState([]);
-    const [chatLoading, setChatLoading] = useState(false);
     const [repoStatus, setRepoStatus] = useState(null);
+    
+    // Repository selection
+    const [repoOptions, setRepoOptions] = useState([]);
+    const [selectedRepoId, setSelectedRepoId] = useState("");
+    
+    // Chat per repository
+    const [chatHistories, setChatHistories] = useState({});
+    const [chatLoading, setChatLoading] = useState(false);
     
     const chatRef = useRef(null);
     const apiBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
+    // Fetch available repositories on mount
     useEffect(() => {
-        const saved = localStorage.getItem("currentRepo");
-        if (saved) {
-            const repo = JSON.parse(saved);
-            setRepoId(repo.repoId);
-            setRepoUrl(repo.repoUrl);
-            setPhase("chat");
-            setMessages(JSON.parse(localStorage.getItem("chatHistory") || "[]"));
+        fetchRepositories();
+    }, [apiBase]);
+
+    const fetchRepositories = async () => {
+        if (!apiBase) return;
+
+        try {
+            const res = await fetch(`${apiBase}/repository`);
+            if (!res.ok) return;
+
+            const data = await res.json();
+            if (Array.isArray(data)) {
+                setRepoOptions(data);
+            }
+        } catch (err) {
+            console.error("Failed to fetch repositories:", err);
         }
-    }, []);
+    };
 
+    // Auto-scroll chat to bottom
     useEffect(() => {
-        if (messages.length > 0) localStorage.setItem("chatHistory", JSON.stringify(messages));
-    }, [messages]);
-
-    useEffect(() => {
-        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
-    }, [messages, chatLoading]);
+        if (chatRef.current) {
+            chatRef.current.scrollTop = chatRef.current.scrollHeight;
+        }
+    }, [chatHistories, chatLoading, selectedRepoId]);
 
     // Poll repository status when in progress phase
     useEffect(() => {
-        if (phase !== "progress" || !repoId || !apiBase) return;
+        if (phase !== "progress" || !selectedRepoId || !apiBase) return;
 
         let cancelled = false;
         let intervalId;
@@ -49,7 +62,7 @@ export default function RepoMentor() {
             if (cancelled) return;
             
             try {
-                const res = await fetch(`${apiBase}/repository/${repoId}`);
+                const res = await fetch(`${apiBase}/repository/${selectedRepoId}`);
                 if (!res.ok) return;
 
                 const data = await res.json();
@@ -61,37 +74,39 @@ export default function RepoMentor() {
                 if (status === "completed") {
                     clearInterval(intervalId);
                     
-                    const welcome = {
-                        id: Date.now(),
-                        type: "system",
-                        content: "Repository loaded successfully! Ask me anything.",
-                        timestamp: new Date().toISOString()
-                    };
+                    // Initialize chat for this repo
+                    if (!chatHistories[selectedRepoId]) {
+                        setChatHistories(prev => ({
+                            ...prev,
+                            [selectedRepoId]: [{
+                                id: Date.now(),
+                                type: "system",
+                                content: "Repository loaded successfully! Ask me anything.",
+                                timestamp: new Date().toISOString()
+                            }]
+                        }));
+                    }
                     
-                    setMessages([welcome]);
-                    localStorage.setItem("chatHistory", JSON.stringify([welcome]));
                     setPhase("chat");
                 } else if (status === "failed") {
                     clearInterval(intervalId);
                     setError("Repository analysis failed. Please try again.");
-                    setPhase("submission");
+                    setPhase("selection");
+                    setSelectedRepoId("");
                 }
             } catch (err) {
                 console.error("Status check error:", err);
             }
         };
 
-        // Initial check
         checkStatus();
-        
-        // Poll every 2 seconds
         intervalId = setInterval(checkStatus, 2000);
 
         return () => {
             cancelled = true;
             if (intervalId) clearInterval(intervalId);
         };
-    }, [phase, repoId, apiBase]);
+    }, [phase, selectedRepoId, apiBase, chatHistories]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -121,10 +136,12 @@ export default function RepoMentor() {
             if (!res.ok) throw new Error(data?.error || "Server error");
 
             const newRepoId = data?.repo_id || "unknown";
-            setRepoId(newRepoId);
+            setSelectedRepoId(newRepoId);
             setRepoStatus("processing");
+            setRepoUrl("");
             
-            localStorage.setItem("currentRepo", JSON.stringify({ repoId: newRepoId, repoUrl: trimmed }));
+            // Refresh repo list
+            await fetchRepositories();
             
             // Move to progress phase
             setPhase("progress");
@@ -135,7 +152,23 @@ export default function RepoMentor() {
         }
     };
 
+    const handleSelectRepo = (repoId) => {
+        setSelectedRepoId(repoId);
+        
+        // Initialize chat history for this repo if it doesn't exist
+        if (!chatHistories[repoId]) {
+            setChatHistories(prev => ({
+                ...prev,
+                [repoId]: []
+            }));
+        }
+        
+        setPhase("chat");
+    };
+
     const handleSendMessage = async (message) => {
+        const currentMessages = chatHistories[selectedRepoId] || [];
+        
         const userMsg = {
             id: Date.now(),
             type: "user",
@@ -143,14 +176,18 @@ export default function RepoMentor() {
             timestamp: new Date().toISOString()
         };
 
-        setMessages(prev => [...prev, userMsg]);
+        setChatHistories(prev => ({
+            ...prev,
+            [selectedRepoId]: [...currentMessages, userMsg]
+        }));
+        
         setChatLoading(true);
 
         try {
             const res = await fetch(`${apiBase}/chat`, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ message, repo_id: repoId }),
+                body: JSON.stringify({ message, repo_id: selectedRepoId }),
             });
 
             const data = await res.json();
@@ -162,7 +199,10 @@ export default function RepoMentor() {
                 timestamp: new Date().toISOString()
             };
 
-            setMessages(prev => [...prev, botMsg]);
+            setChatHistories(prev => ({
+                ...prev,
+                [selectedRepoId]: [...prev[selectedRepoId], botMsg]
+            }));
         } catch (err) {
             const errorMsg = {
                 id: Date.now() + 1,
@@ -170,23 +210,22 @@ export default function RepoMentor() {
                 content: `Error: ${err.message}`,
                 timestamp: new Date().toISOString()
             };
-            setMessages(prev => [...prev, errorMsg]);
+            
+            setChatHistories(prev => ({
+                ...prev,
+                [selectedRepoId]: [...prev[selectedRepoId], errorMsg]
+            }));
         } finally {
             setChatLoading(false);
         }
     };
 
-    const handleNewRepo = () => {
-        if (confirm("Start with a new repository? Current chat will be saved.")) {
-            localStorage.removeItem("currentRepo");
-            localStorage.removeItem("chatHistory");
-            setPhase("submission");
-            setRepoUrl("");
-            setRepoId(null);
-            setMessages([]);
-        }
+    const handleBackToSelection = () => {
+        setPhase("selection");
+        setSelectedRepoId("");
     };
 
+    // Progress Page
     if (phase === "progress") {
         return (
             <div className="min-h-screen bg-black flex items-center justify-center p-6">
@@ -215,12 +254,12 @@ export default function RepoMentor() {
                         <div className="flex items-center justify-between">
                             <span className="text-sm font-medium text-gray-300">Repository:</span>
                             <span className="text-sm font-mono text-gray-400 truncate max-w-xs">
-                                {repoId}
+                                {selectedRepoId}
                             </span>
                         </div>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 justify-center">
                         <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: "0ms"}}></div>
                         <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: "150ms"}}></div>
                         <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: "300ms"}}></div>
@@ -234,10 +273,11 @@ export default function RepoMentor() {
         );
     }
 
-    if (phase === "submission") {
+    // Selection Page
+    if (phase === "selection") {
         return (
             <div className="min-h-screen bg-black flex items-center justify-center p-6">
-                <div className="w-full max-w-lg">
+                <div className="w-full max-w-lg space-y-6">
                     <div className="text-center mb-8">
                         <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-800 rounded-full mb-4 border border-gray-700">
                             <svg className="w-8 h-8 text-gray-200" fill="currentColor" viewBox="0 0 24 24">
@@ -248,11 +288,10 @@ export default function RepoMentor() {
                         <p className="text-gray-400 text-base">AI-powered repository intelligence</p>
                     </div>
 
-                    <form onSubmit={handleSubmit} className="bg-gray-900 rounded-lg border border-gray-700 p-6 space-y-4">
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-200 mb-2">
-                                GitHub Repository URL
-                            </label>
+                    {/* Add New Repository */}
+                    <div className="bg-gray-900 rounded-lg border border-gray-700 p-6 space-y-4">
+                        <h2 className="text-lg font-semibold text-gray-200">Add Repository</h2>
+                        <form onSubmit={handleSubmit} className="space-y-4">
                             <input
                                 type="url"
                                 value={repoUrl}
@@ -262,54 +301,88 @@ export default function RepoMentor() {
                                 disabled={loading}
                                 required
                             />
-                        </div>
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-700 disabled:text-gray-500 font-medium text-sm transition-colors"
+                            >
+                                {loading ? "Adding Repository..." : "Add Repository"}
+                            </button>
+                        </form>
 
                         {error && (
                             <div className="p-3 bg-red-900 bg-opacity-30 border border-red-700 rounded-md text-sm text-red-400">
                                 {error}
                             </div>
                         )}
+                    </div>
 
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="w-full py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-700 disabled:text-gray-500 font-medium text-sm transition-colors"
-                        >
-                            {loading ? "Analyzing..." : "Analyze Repository"}
-                        </button>
-                    </form>
+                    {/* Select Existing Repository */}
+                    {repoOptions.length > 0 && (
+                        <div className="bg-gray-900 rounded-lg border border-gray-700 p-6 space-y-4">
+                            <h2 className="text-lg font-semibold text-gray-200">Select Repository</h2>
+                            <div className="space-y-2">
+                                {repoOptions.map((id) => (
+                                    <button
+                                        key={id}
+                                        onClick={() => handleSelectRepo(id)}
+                                        className="w-full text-left px-4 py-3 bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-md text-sm text-gray-200 transition-colors flex items-center justify-between group"
+                                    >
+                                        <span className="font-mono text-sm">{id}</span>
+                                        <svg className="w-5 h-5 text-gray-500 group-hover:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         );
     }
 
+    // Chat Page
+    const currentMessages = chatHistories[selectedRepoId] || [];
+
     return (
         <div className="flex flex-col h-screen bg-black">
             <header className="bg-gray-900 border-b border-gray-800 px-6 py-4">
-                <div className="max-w-5xl mx-auto">
-                    <div className="flex items-center justify-between mb-3">
-                        <h1 className="text-xl font-semibold text-gray-100">Repo Mentor</h1>
+                <div className="max-w-5xl mx-auto flex items-center justify-between">
+                    <div className="flex items-center gap-3">
                         <button
-                            onClick={handleNewRepo}
-                            className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 font-medium transition-colors"
+                            onClick={handleBackToSelection}
+                            className="text-gray-400 hover:text-gray-200 transition-colors"
+                            title="Back to repository selection"
                         >
-                            New Repository
+                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                            </svg>
                         </button>
+                        <div>
+                            <h1 className="text-lg font-semibold text-gray-100">Repo Mentor</h1>
+                            <p className="text-xs text-gray-400 font-mono">{selectedRepoId}</p>
+                        </div>
                     </div>
-                    <RepoCard repoUrl={repoUrl} repoId={repoId} />
+                    <button
+                        onClick={handleBackToSelection}
+                        className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 font-medium transition-colors"
+                    >
+                        Change Repository
+                    </button>
                 </div>
             </header>
 
             <div ref={chatRef} className="flex-1 overflow-y-auto px-6 py-4">
                 <div className="max-w-4xl mx-auto">
-                    {messages.map((msg, index) => (
+                    {currentMessages.map((msg, index) => (
                         <ChatMessage 
                             key={msg.id} 
                             message={msg.content} 
                             type={msg.type} 
                             timestamp={msg.timestamp}
                             index={index}
-                            totalMessages={messages.length}
+                            totalMessages={currentMessages.length}
                         />
                     ))}
                     {chatLoading && <TypingIndicator />}
