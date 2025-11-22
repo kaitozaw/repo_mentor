@@ -43,7 +43,7 @@ def ingest_repository(repo_url: str) -> Dict[str, Any]:
     return {"repo_id": repo_id}
 
 def list_repositories() -> List[str]:
-    repo_ids = list_repos("repos")
+    repo_ids = list_repos("repos/")
     return sorted(repo_ids)
 
 def start_ingest_repository_job(repo_url: str) -> Dict[str, Any]:
